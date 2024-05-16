@@ -1,199 +1,240 @@
-import { AbstractSqliteDriver } from "typeorm/browser/driver/sqlite-abstract/AbstractSqliteDriver.js";
-import { SqliteConnectionOptions } from 'typeorm/browser/driver/sqlite/SqliteConnectionOptions'
-import { ColumnType, DriverPackageNotInstalledError, QueryRunner, ReplicationMode, DataSource, } from 'typeorm/browser/index.js'
-import { SqliteQueryRunner }                                                        from './SqliteWasmQueryRunner'
-import { filepathToName, } from 'typeorm/browser/util/PathUtils.js'
-import sqlite3InitModule from '@sqlite.org/sqlite-wasm';
+import { SqliteConnectionOptions }                                                  from 'typeorm/browser/driver/sqlite/SqliteConnectionOptions'
+import { ColumnType, DriverPackageNotInstalledError, ReplicationMode, DataSource, } from 'typeorm/browser/index.js'
+import { SqliteWasmQueryRunner }                                                    from './SqliteWasmQueryRunner'
+import {
+  filepathToName,
+}                                                                                   from 'typeorm/browser/util/PathUtils.js'
+import { SqliteDriver }                                                             from './SqliteDriver'
+import sqlite3InitModule from '@sqlite.org/sqlite-wasm'
 
-// declare module '@sqlite.org/sqlite-wasm' {
-//   export function sqlite3Worker1Promiser(...args: any): any
-// }
 
 /**
  * Organizes communication with sqlite DBMS.
  */
-export class SqliteWasmDriver extends AbstractSqliteDriver {
-     // -------------------------------------------------------------------------
-    // Public Properties
-    // -------------------------------------------------------------------------
+export class SqliteWasmDriver extends SqliteDriver {
+  // -------------------------------------------------------------------------
+  // Public Properties
+  // -------------------------------------------------------------------------
 
-    /**
-     * Connection options.
-     */
-    options: SqliteConnectionOptions
+  /**
+   * Connection options.
+   */
+  options: SqliteConnectionOptions
 
-    /**
-     * SQLite underlying library.
-     */
-    declare sqlite: any
+  /**
+   * SQLite underlying library.
+   */
+  sqlite: any
 
-    // -------------------------------------------------------------------------
-    // Constructor
-    // -------------------------------------------------------------------------
+  dbPath: string | undefined
+  dbId: string | undefined
 
-    constructor(connection: DataSource) {
-        super(connection)
-        this.connection = connection
-        this.options = connection.options as SqliteConnectionOptions
-        this.database = this.options.database
+
+  // -------------------------------------------------------------------------
+  // Protected Properties
+  // -------------------------------------------------------------------------
+
+  /**
+   * Any attached databases (excepting default 'main')
+   */
+  // attachedDatabases: DatabasesMap = {}
+
+
+  // -------------------------------------------------------------------------
+  // Constructor
+  // -------------------------------------------------------------------------
+
+  constructor( connection: DataSource ) {
+    super(connection)
+    this.connection = connection
+    this.options    = {
+      ...connection.options,
+      type: 'sqlite',
+      database: 'test'
+    } as SqliteConnectionOptions
+    this.database   = this.options.database
+  }
+
+  // -------------------------------------------------------------------------
+  // Public Methods
+  // -------------------------------------------------------------------------
+
+  /**
+   * Performs connection to the database.
+   */
+  async connect(): Promise<void> {
+    if ( !this.sqlite ) {
+      await this.initialize()
     }
+    await this.sqlite('open', {
+      filename: `file:${this.database}.sqlite3?vfs=opfs`,
+    })
+  }
 
-    // -------------------------------------------------------------------------
-    // Public Methods
-    // -------------------------------------------------------------------------
+  async initialize(): Promise<void> {
+    try {
 
-    async initialize(): Promise<void> {
-        try {
+      console.log('Initializing SqliteWasmDriver')
 
-            console.log(sqlite3InitModule())
+      //@ts-ignore
+      if ( window && !window.sqlite3Worker1Promiser ) {
+        await sqlite3InitModule()
+      }
 
-            // @ts-ignore
-            if (window && !!window.sqlite3Worker1Promiser) {
-              const promiser = await new Promise((resolve) => {
-                //@ts-ignore
-                const _promiser = window.sqlite3Worker1Promiser({
-                  onready: () => {
-                    resolve(_promiser);
-                  },
-                });
-              })
-
-              // console.log(promiser)
-
-              console.log('Done initializing. Running demo...');
-
-              let response;
-
-              //@ts-ignore
-              response = await promiser('config-get', {});
-              console.log('Running SQLite3 version', response.result.version.libVersion);
-
-              //@ts-ignore
-              response = await promiser('open', {
-                filename: 'file:typeorm.sqlite3?vfs=opfs',
-              });
-              const { dbId } = response;
-              console.log(`dbId: ${dbId}`)
-              console.log(
-                'OPFS is available, created persisted database at',
-                response.result.filename.replace(/^file:(.*?)\?vfs=opfs$/, '$1'),
-              );
-              this.sqlite = response
-            }
-
-
-            // Your SQLite code here.
-        } catch (e) {
-            throw new DriverPackageNotInstalledError("SQLite WASM", "@sqlite.org/sqlite-wasm")
-        }
-    }
-
-    /**
-     * Closes connection with database.
-     */
-    async disconnect(): Promise<void> {
-        return new Promise<void>((ok, fail) => {
-            this.queryRunner = undefined
-            this.databaseConnection.close((err: any) =>
-                err ? fail(err) : ok(),
-            )
+      // @ts-ignore
+      if ( window && !!window.sqlite3Worker1Promiser ) {
+        const promiser = await new Promise(( resolve ) => {
+          //@ts-ignore
+          const _promiser = window.sqlite3Worker1Promiser({
+            onready: () => {
+              resolve(_promiser)
+            },
+          })
         })
+
+        this.sqlite = promiser
+
+        // console.log(promiser)
+
+        console.log('Done initializing. Running demo...')
+
+        let response
+
+        //@ts-ignore
+        response = await promiser('config-get', {})
+        console.log('Running SQLite3 version', response.result.version.libVersion)
+
+        //@ts-ignore
+        response     = await promiser('open', {
+          filename: `file:${this.database}.sqlite3?vfs=opfs`,
+        })
+        this.dbPath  = `file:${this.database}.sqlite3?vfs=opfs`
+        const {dbId} = response
+        this.dbId    = dbId
+        console.log(`dbId: ${dbId}`)
+        console.log(
+          'OPFS is available, created persisted database at',
+          response.result.filename.replace(/^file:(.*?)\?vfs=opfs$/, '$1'),
+        )
+      }
+
+
+      // Your SQLite code here.
+    } catch ( e ) {
+      throw new DriverPackageNotInstalledError('SQLite WASM', '@sqlite.org/sqlite-wasm')
+    }
+  }
+
+  /**
+   * Closes connection with database.
+   */
+  async disconnect(): Promise<void> {
+    return new Promise<void>(( ok, fail ) => {
+      this.queryRunner = undefined
+      this.sqlite('close', {
+        dbId: this.dbId,
+      }).then(() => {
+        ok()
+      }).catch(( err: any ) => {
+        fail(err)
+      })
+    })
+  }
+
+  /**
+   * Creates a query runner used to execute database queries.
+   */
+  // @ts-ignore
+  createQueryRunner( mode: ReplicationMode ): SqliteWasmQueryRunner {
+    console.log('createQueryRunner', mode)
+    // @ts-ignore
+    if ( !this.queryRunner ) this.queryRunner = new SqliteWasmQueryRunner(this)
+
+    // @ts-ignore
+    return this.queryRunner as SqliteWasmQueryRunner
+  }
+
+  normalizeType( column: {
+    type?: ColumnType
+    length?: number | string
+    precision?: number | null
+    scale?: number
+  } ): string {
+    return super.normalizeType(column)
+  }
+
+  async afterConnect(): Promise<void> {
+    return this.attachDatabases()
+  }
+
+  /**
+   * For SQLite, the database may be added in the decorator metadata. It will be a filepath to a database file.
+   */
+  buildTableName(
+    tableName: string,
+    _schema?: string,
+    database?: string,
+  ): string {
+    if ( !database ) return tableName
+    if (
+      this.hasAttachedDatabases() &&
+      this.getAttachedDatabaseHandleByRelativePath(database)
+    )
+      return `${this.getAttachedDatabaseHandleByRelativePath(
+        database,
+      )}.${tableName}`
+
+    if ( database === this.options.database ) {
+      return tableName
     }
 
-    /**
-     * Creates a query runner used to execute database queries.
-     */
-    createQueryRunner(mode: ReplicationMode): QueryRunner {
-        if (!this.queryRunner) this.queryRunner = new SqliteQueryRunner(this)
+    // we use the decorated name as supplied when deriving attach handle (ideally without non-portable absolute path)
+    const identifierHash = filepathToName(database)
 
-        return this.queryRunner
+    return `${identifierHash}.${tableName}`
+  }
+
+  // -------------------------------------------------------------------------
+  // Protected Methods
+  // -------------------------------------------------------------------------
+
+  /**
+   * Creates connection with the database.
+   */
+  protected async createDatabaseConnection() {
+    //@ts-ignore
+    if ( window && window.sqlite3Worker1Promiser ) {
+      const promiser = await new Promise(( resolve ) => {
+        //@ts-ignore
+        const _promiser = window.sqlite3Worker1Promiser({
+          onready: () => {
+            resolve(_promiser)
+          },
+        })
+      })
+
+      //@ts-ignore
+      await promiser('open', {
+        filename: `file:${this.database}.sqlite3?vfs=opfs`,
+      })
     }
+  }
 
-    normalizeType(column: {
-        type?: ColumnType
-        length?: number | string
-        precision?: number | null
-        scale?: number
-    }): string {
-        // if ((column.type as any) === Buffer) {
-        //     return "blob"
-        // }
+  /**
+   * If driver dependency is not given explicitly, then try to load it via "require".
+   */
+  protected loadDependencies(): void {
+    // try {
+    //     const sqlite = this.options.driver || PlatformTools.load("sqlite3")
+    //     this.sqlite = sqlite.verbose()
+    // } catch (e) {
+    //     throw new DriverPackageNotInstalledError("SQLite", "sqlite3")
+    // }
+  }
 
-        return super.normalizeType(column)
-    }
+  protected getMainDatabasePath(): string {
+    return this.dbPath || this.options.database
+  }
 
-    async afterConnect(): Promise<void> {
-        return this.attachDatabases()
-    }
-
-    /**
-     * For SQLite, the database may be added in the decorator metadata. It will be a filepath to a database file.
-     */
-    buildTableName(
-        tableName: string,
-        _schema?: string,
-        database?: string,
-    ): string {
-        if (!database) return tableName
-        if (this.getAttachedDatabaseHandleByRelativePath(database))
-            return `${this.getAttachedDatabaseHandleByRelativePath(
-                database,
-            )}.${tableName}`
-
-        if (database === this.options.database) return tableName
-
-        // we use the decorated name as supplied when deriving attach handle (ideally without non-portable absolute path)
-        const identifierHash = filepathToName(database)
-        // decorated name will be assumed relative to main database file when non absolute. Paths supplied as absolute won't be portable
-        // const absFilepath = isAbsolute(database)
-        //     ? database
-        //     : path.join(this.getMainDatabasePath(), database)
-        //
-        // this.attachedDatabases[database] = {
-        //     attachFilepathAbsolute: absFilepath,
-        //     attachFilepathRelative: database,
-        //     attachHandle: identifierHash,
-        // }
-
-        return `${identifierHash}.${tableName}`
-    }
-
-     // -------------------------------------------------------------------------
-    // Protected Methods
-    // -------------------------------------------------------------------------
-
-    /**
-     * Creates connection with the database.
-     */
-    protected async createDatabaseConnection() {
-
-    }
-
-
-    /**
-     * Auto creates database directory if it does not exist.
-     */
-    protected async createDatabaseDirectory(fullPath: string): Promise<void> {
-        // await mkdirp(path.dirname(fullPath))
-    }
-
-     /**
-     * Performs the attaching of the database files. The attachedDatabase should have been populated during calls to #buildTableName
-     * during EntityMetadata production (see EntityMetadata#buildTablePath)
-     *
-     * https://sqlite.org/lang_attach.html
-     */
-    protected async attachDatabases() {
-        // @todo - possibly check number of databases (but unqueriable at runtime sadly) - https://www.sqlite.org/limits.html#max_attached
-        for await (const {
-            attachHandle,
-            attachFilepathAbsolute,
-        } of Object.values(this.attachedDatabases)) {
-            await this.createDatabaseDirectory(attachFilepathAbsolute)
-            await this.connection.query(
-                `ATTACH "${attachFilepathAbsolute}" AS "${attachHandle}"`,
-            )
-        }
-    }
 
 }

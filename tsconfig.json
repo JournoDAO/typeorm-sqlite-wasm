@@ -3,9 +3,11 @@
     "target": "es6",
     "lib": ["dom", "dom.iterable", "esnext"],
     "allowJs": true,
-    "declaration": true,
     "skipLibCheck": true,
     "strict": true,
+    "declaration": true,
+    "declarationMap": true,
+    "declarationDir": "./dist",
     "sourceMap": true,
     "forceConsistentCasingInFileNames": true,
     "experimentalDecorators": true,
@@ -16,9 +18,9 @@
     "moduleResolution": "node",
     "resolveJsonModule": true,
     "isolatedModules": true,
-    "typeRoots": ["./node_modules/@types", "./types", "./src"],
+    "typeRoots": ["./node_modules/@types", "./types",],
     "types": ["jest",],
     "outDir": "./dist"
   },
-  "include": ["src/**/*", "types/**/*"]
+  "include": ["src/**/*", "__tests__/**/*", "types/**/*"]
 }

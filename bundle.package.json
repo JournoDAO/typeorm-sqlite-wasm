@@ -11,7 +11,8 @@
   ],
   "sideEffects": false,
   "scripts": {
-    "build": "rollpkg build && cp bundle.package.json dist/package.json",
+    "build": "npm run build",
+    "build-rollpkg": "rollpkg build && cp bundle.package.json dist/package.json",
     "watch": "rollpkg watch",
     "prepublishOnly": "npm run build"
   },
